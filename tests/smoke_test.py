@@ -223,6 +223,28 @@ def main() -> None:
         require("--domain calendar" not in text_ref.replace("不要用 `--domain calendar`", ""), f"{reference} must not request the full calendar domain")
     require("--as user" in (SKILL / "references" / "setup.md").read_text(encoding="utf-8"), "setup must read the calendar as the user identity")
 
+    server_dir = ROOT / "server"
+    if server_dir.is_dir():
+        compiled = subprocess.run([sys.executable, "-m", "compileall", "-q", str(server_dir / "lba")], capture_output=True, text=True)
+        require(compiled.returncode == 0, "server/lba does not compile: " + compiled.stdout + compiled.stderr)
+        try:
+            import cryptography  # noqa: F401
+            import httpx  # noqa: F401
+        except ImportError:
+            print("note: server unit tests skipped (cryptography/httpx not installed)")
+        else:
+            server_tests = subprocess.run(
+                [sys.executable, "-m", "unittest", "discover", "-s", "tests", "-t", "."],
+                cwd=str(server_dir), capture_output=True, text=True,
+            )
+            require(server_tests.returncode == 0, "server unit tests failed:\n" + server_tests.stderr[-2000:])
+        env_example = (server_dir / ".env.example").read_text(encoding="utf-8")
+        for line in env_example.splitlines():
+            if line.startswith("LBA_") and "=" in line:
+                key, value = line.split("=", 1)
+                if key.endswith(("_SECRET", "_API_KEY")):
+                    require(value.strip() == "", f".env.example must not carry a value for {key}")
+
     release_text = "\n".join(
         path.read_text(encoding="utf-8", errors="replace")
         for path in ROOT.rglob("*")

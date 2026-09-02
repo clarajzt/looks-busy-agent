@@ -1,0 +1,46 @@
+# Separate compose project on the host (e.g. ~/looks-busy-server). Leaves other services untouched.
+# HTTPS variant B (no ICP 备案): Caddy serves :8443 and gets its certificate via DNS-01.
+services:
+  lba-server:
+    build:
+      context: ..
+      dockerfile: server/Dockerfile
+    env_file: .env
+    secrets: [lba_master_key]
+    volumes:
+      - ./data:/data
+    expose: ["8080"]
+    mem_limit: 200m
+    memswap_limit: 300m
+    restart: unless-stopped
+    dns: [223.5.5.5, 223.6.6.6]
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+  caddy:
+    # Variant B needs a DNS plugin; build once: see server/README.md (Caddyfile expects alidns).
+    build:
+      context: .
+      dockerfile_inline: |
+        FROM caddy:2-builder-alpine AS builder
+        RUN xcaddy build --with github.com/caddy-dns/alidns
+        FROM caddy:2-alpine
+        COPY --from=builder /usr/bin/caddy /usr/bin/caddy
+    env_file: .env
+    ports: ["8443:8443"]
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    mem_limit: 64m
+    restart: unless-stopped
+    depends_on: [lba-server]
+
+secrets:
+  lba_master_key:
+    file: ./secrets/lba_master_key
+
+volumes:
+  caddy_data:
+  caddy_config:

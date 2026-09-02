@@ -1,0 +1,14 @@
+# Variant B: unregistered (无备案) domain on a mainland ECS -> serve on 8443, DNS-01 certificate.
+# Set LBA_CADDY_DOMAIN, ALICLOUD_ACCESS_KEY_ID, ALICLOUD_ACCESS_KEY_SECRET in .env.
+{$LBA_CADDY_DOMAIN}:8443 {
+	tls {
+		dns alidns {
+			access_key_id {$ALICLOUD_ACCESS_KEY_ID}
+			access_key_secret {$ALICLOUD_ACCESS_KEY_SECRET}
+		}
+	}
+	# Only the two public flows are proxied; /healthz stays internal.
+	@public path /oauth/* /mail/*
+	reverse_proxy @public lba-server:8080
+	respond 404
+}
