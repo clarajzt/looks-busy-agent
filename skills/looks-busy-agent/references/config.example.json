@@ -1,0 +1,61 @@
+{
+  "version": 1,
+  "timezone": "Asia/Shanghai",
+  "run_time": "21:00",
+  "schedule": {
+    "enabled": true,
+    "provider": "auto",
+    "agent": null,
+    "job_id": null,
+    "delivery_verified": false
+  },
+  "work_scope": [
+    "融资与 LP 服务",
+    "投资项目沟通、筛选、尽调和内部评审",
+    "投后管理、资源对接、信息更新和风险跟踪"
+  ],
+  "sources": {
+    "agent_history": {
+      "enabled": true,
+      "current_thread_only": true
+    },
+    "local_files": {
+      "enabled": false,
+      "roots": [],
+      "lookback_hours": 24
+    },
+    "feishu": {
+      "enabled": false,
+      "identity": "user",
+      "calendar_id": "primary"
+    },
+    "email": {
+      "enabled": false,
+      "protocol": "imap",
+      "host": "imap.exmail.qq.com",
+      "port": 993,
+      "username": "",
+      "username_env": "LOOKS_BUSY_EMAIL_USER",
+      "password_keychain_service": "looks-busy-agent-email",
+      "password_env": "LOOKS_BUSY_EMAIL_PASSWORD",
+      "mailboxes": ["INBOX", "Sent Messages"]
+    }
+  },
+  "report": {
+    "delivery": "agent_conversation",
+    "output_dir": "~/.local/share/looks-busy-agent/reports",
+    "recipient": null,
+    "sections": ["今日推进", "明日计划"]
+  },
+  "calendar": {
+    "write_enabled": false,
+    "target": "primary",
+    "plan_horizon_days": 1,
+    "max_blocks": 3,
+    "marker": "looks-busy-agent"
+  },
+  "privacy": {
+    "raw_retention_days": 7,
+    "default_unknown_entity_to_anonymous": true
+  }
+}

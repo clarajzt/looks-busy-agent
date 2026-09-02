@@ -1,0 +1,6 @@
+interface:
+  display_name: "看起来很忙 Agent"
+  short_description: "连接已授权工作信号，生成日报并维护飞书未来工作日历"
+  default_prompt: "Use $looks-busy-agent to connect my approved work sources and deliver my work report here every day at 9 PM or whenever I ask."
+policy:
+  allow_implicit_invocation: true
