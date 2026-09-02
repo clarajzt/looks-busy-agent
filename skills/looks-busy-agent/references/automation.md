@@ -6,15 +6,23 @@
 
 setup 必须先识别当前运行环境，再选择本环境真实可用的调度器。不得因为某个平台没有 Codex heartbeat 就断言整个 Skill 不可用，也不得只写配置或说明文字后声称自动化已启用。
 
-## 调度适配器
+## 调度适配器（有序决策）
 
-按以下优先级选择；只配置当前环境需要的一种：
+先运行 `python3 scripts/detect_scheduler.py`（只读探测，`--json` 给机器读），按它的 `recommended` 走。优先级固定为：
+
+1. **当前 Agent 的原生持久调度器**（Codex App heartbeat、TraeWork 自动化、WorkBuddy 自动化、Cola 闹钟、Claude Desktop 任务）。
+2. **同机其他已安装 Agent 的原生调度器**：告诉用户可以切到那个 Agent 创建定时任务。
+3. **OS 兜底**：macOS `scripts/schedule_launchd.sh`，Windows `scripts/schedule_windows.ps1`。只在 1、2 都没有时使用。
+4. **仅手动 `run`**。
+
+只配置当前环境需要的一种：
 
 | 环境 | 首选调度器 | 默认交付 | 关键限制 |
 |---|---|---|---|
 | Codex App | 当前任务 heartbeat | 当前 Codex 任务 | 创建后回读卡片与 ACTIVE 状态 |
 | Claude Code Desktop | Desktop scheduled task | 对应 Claude 任务 | 选择可访问本地文件的 Desktop 任务 |
-| Claude Code CLI | `/schedule` routine；需要本地文件时改用 Desktop | routine 结果页 | cloud routine 不能读取本机未提交文件、Keychain 或本地 CLI |
+| Claude Code CLI / Codex CLI（macOS） | `scripts/schedule_launchd.sh`（launchd 无头运行） | 日报文件 + 运行日志；下次打开 Agent 时可读 | 睡眠中错过会在唤醒后补跑，关机则丢；`/schedule` cloud routine 不能读取本机邮箱、Keychain 或 lark-cli，不要用它 |
+| Claude Code CLI / Codex CLI（Windows） | `scripts/schedule_windows.ps1`（任务计划无头运行） | 同上 | 已启用「唤醒运行」+「错过后尽快运行」；Codex CLI 在 Windows 官方仍标实验性，优先 Claude Code；白名单路径规则未在真机验证 |
 | TRAE / TraeWork（豆包编程入口） | 自动化定时任务 | TraeWork 任务结果 | 在 Work 模式创建，并确认 Skill 与本地目录权限 |
 | WorkBuddy | 自动化任务 | WorkBuddy 任务；可选推送小程序 | 选择本 Skill、工作空间与“推送到小程序”设置 |
 | Cola | 智能闹钟 | 创建闹钟的会话 | Cola 桌面端需保持运行；定时任务可调用已安装 Skill |
@@ -22,19 +30,45 @@ setup 必须先识别当前运行环境，再选择本环境真实可用的调�
 
 若当前产品只有普通聊天、不能读取本地 Skill、不能运行脚本或没有定时能力，只支持手动 `run`。例如“豆包”若指普通聊天 App 而不是 TRAE/TraeWork，就不能完成本地邮箱、飞书 CLI 和无人值守定时闭环。
 
+## macOS 本地定时（launchd，任意 CLI Agent 通用兜底）
+
+需要读本机邮箱、Keychain 或 lark-cli 时，云端 routine 都做不到；macOS 上用随 Skill 附带的脚本：
+
+```bash
+bash scripts/schedule_launchd.sh install                 # 时间取 config.run_time，Agent 自动检测 claude/codex
+bash scripts/schedule_launchd.sh install --time 22:30 --agent claude
+bash scripts/schedule_launchd.sh run-once                # 立即跑一次（试跑 / 补日报）
+bash scripts/schedule_launchd.sh status
+bash scripts/schedule_launchd.sh uninstall
+```
+
+脚本生成 `~/Library/LaunchAgents/com.looks-busy-agent.daily.plist` 和 wrapper `~/.local/share/looks-busy-agent/run_daily.sh`。到点先**确定性预采集**当天只读快照（`collect_email.py`、`lark-cli calendar +agenda --as user` → `raw/<日期>/`，失败即降级），再以最小白名单无头调用 `claude -p`（`--permission-mode dontAsk` + `--allowedTools`，不用 `--dangerously-skip-permissions`）或 `codex exec` 执行 `run`，30 分钟 watchdog，结果写入 `logs/run.log` 与 `logs/last_run.json`。改白名单时注意两个已验证的坑：文件写入用 `Edit(...)` 规则（`Write(路径)` 不匹配），绝对路径要写成双斜杠 `//Users/...`。
+
+安装成功后把 `config.schedule` 写成 `{"provider": "launchd", "agent": "claude", "job_id": "com.looks-busy-agent.daily"}`，并 `run-once` 试跑一次确认有日报文件产生。launchd 只落盘不推送，向用户说明「到点会生成，打开 Agent 说『看今天的日报』即可读」；要推送到飞书需另行授权。睡眠：`StartCalendarInterval` 在睡眠中错过的触发会在唤醒后合并补跑一次（man launchd.plist），只有关机才真正错过。
+
+## Windows 本地定时（任务计划，同样是兜底）
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\schedule_windows.ps1 install -Time 21:00 -Agent claude
+powershell -ExecutionPolicy Bypass -File scripts\schedule_windows.ps1 run-once
+powershell -ExecutionPolicy Bypass -File scripts\schedule_windows.ps1 status | uninstall
+```
+
+结构与 launchd 脚本一致：wrapper 在 `%LOCALAPPDATA%\looks-busy-agent\run_daily.ps1`，先预采集再无头调用 Agent。任务同时启用 WakeToRun 与 StartWhenAvailable（缺一个笔记本睡眠时就跑不了；从睡眠唤醒还要 BIOS 允许定时唤醒）。邮箱密码用 `cmdkey /generic:looks-busy-agent-email /user:<邮箱> /pass` 存入凭据管理器，`collect_email.py` 通过系统 API 读回。`config.schedule.provider` 写 `schtasks`。
+
 ## 定时 Prompt
 
 使用当前 Agent 的自然调用方式，不假设所有平台都支持 `$skill-name`：
 
 ```text
-使用 looks-busy-agent 的 run 模式，读取已授权的当天工作来源，生成经过相关性筛选和敏感信息处理的工作日报，在本任务或会话中交付，并保存到已配置的私有目录。日报只包含工作推进与未来计划，不披露所用工具或自动化过程。不得未经授权对外发送；仅在已单独授权时执行幂等的未来日历写入。某个来源不可用时使用其他已授权来源继续生成，并注明覆盖范围。
+使用 looks-busy-agent 的 run 模式，读取已授权的当天工作来源，生成经过相关性筛选和敏感信息处理的工作日报，在本任务或会话中交付，并用 scripts/save_report.py --date <今天> 保存到已配置的私有目录（必须看到脚本打印的 saved: 路径）。日报只包含工作推进与未来计划，不披露所用工具或自动化过程。不得未经授权对外发送；仅在已单独授权时执行幂等的未来日历写入。某个来源不可用时使用其他已授权来源继续生成，并注明覆盖范围。
 ```
 
 ## 必须实际创建并验证
 
 1. 查找当前环境中名为「看起来很忙日报」的既有任务；存在则更新，不存在则创建，避免重复。
 2. 使用 `config.timezone` 和 `config.run_time` 创建每日任务，状态设为启用。
-3. 做一次“立即运行”或最小测试运行，确认任务确实加载本 Skill、能访问已授权来源并产生日报。
+3. 做一次“立即运行”或最小测试运行，确认任务确实加载本 Skill、能访问已授权来源并产生日报，且 `report.output_dir` 里出现了 `<日期>.md`（没有文件 = 保存步骤没执行，把 save_report.py 写进定时 Prompt）。
 4. 回读任务，核对名称、时间、时区、交付位置和启用状态；把平台名、调度类型和任务 ID 写入 `config.schedule`。
 5. 只有创建、试跑和回读都成功后才能告诉用户自动日报已启用。失败时保留手动 `run`，明确缺的是安装发现、来源权限、调度还是交付。
 

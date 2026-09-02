@@ -10,9 +10,9 @@
     "delivery_verified": false
   },
   "work_scope": [
-    "融资与 LP 服务",
-    "投资项目沟通、筛选、尽调和内部评审",
-    "投后管理、资源对接、信息更新和风险跟踪"
+    "<你的岗位职责 1，例如：客户沟通与项目推进>",
+    "<你的岗位职责 2，例如：内部协作与文档整理>",
+    "<你的岗位职责 3，例如：例行汇报与数据更新>"
   ],
   "sources": {
     "agent_history": {
@@ -45,6 +45,7 @@
     "delivery": "agent_conversation",
     "output_dir": "~/.local/share/looks-busy-agent/reports",
     "recipient": null,
+    "title_format": "【AI日记】{date}",
     "sections": ["今日推进", "明日计划"]
   },
   "calendar": {

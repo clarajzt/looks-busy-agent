@@ -33,6 +33,41 @@ def keychain_password(service: str, account: str) -> str | None:
     return result.stdout.strip() if result.returncode == 0 else None
 
 
+def windows_credential(target: str) -> str | None:
+    """Read a generic credential saved with `cmdkey /generic:<target>` (stdlib ctypes only)."""
+    if sys.platform != "win32":
+        return None
+    import ctypes
+    from ctypes import wintypes
+
+    class CREDENTIAL(ctypes.Structure):
+        _fields_ = [
+            ("Flags", wintypes.DWORD),
+            ("Type", wintypes.DWORD),
+            ("TargetName", wintypes.LPWSTR),
+            ("Comment", wintypes.LPWSTR),
+            ("LastWritten", wintypes.FILETIME),
+            ("CredentialBlobSize", wintypes.DWORD),
+            ("CredentialBlob", ctypes.POINTER(ctypes.c_ubyte)),
+            ("Persist", wintypes.DWORD),
+            ("AttributeCount", wintypes.DWORD),
+            ("Attributes", ctypes.c_void_p),
+            ("TargetAlias", wintypes.LPWSTR),
+            ("UserName", wintypes.LPWSTR),
+        ]
+
+    advapi32 = ctypes.windll.advapi32  # type: ignore[attr-defined]
+    pointer = ctypes.POINTER(CREDENTIAL)()
+    if not advapi32.CredReadW(target, 1, 0, ctypes.byref(pointer)):  # 1 = CRED_TYPE_GENERIC
+        return None
+    try:
+        size = pointer.contents.CredentialBlobSize
+        blob = ctypes.string_at(pointer.contents.CredentialBlob, size)
+        return blob.decode("utf-16-le", errors="replace")
+    finally:
+        advapi32.CredFree(pointer)
+
+
 def resolve_credentials(email_config: dict) -> tuple[str, str]:
     username = email_config.get("username") or os.environ.get(
         email_config.get("username_env") or "", ""
@@ -40,11 +75,16 @@ def resolve_credentials(email_config: dict) -> tuple[str, str]:
     if not username:
         sys.exit("email username 未配置")
     service = email_config.get("password_keychain_service") or "looks-busy-agent-email"
-    password = keychain_password(service, username)
+    password = keychain_password(service, username) or windows_credential(service)
     if not password:
         password = os.environ.get(email_config.get("password_env") or "", "")
     if not password:
-        sys.exit("找不到邮箱凭据；请先存入 Keychain 或配置密码环境变量")
+        sys.exit(
+            "找不到邮箱凭据。请由用户本人在终端执行（隐藏式输入客户端专用密码，不经过对话）:\n"
+            f'  macOS:   security add-generic-password -a "{username}" -s {service} -w\n'
+            f"  Windows: cmdkey /generic:{service} /user:{username} /pass\n"
+            f"或在启动 Agent 前设置环境变量 {email_config.get('password_env') or 'LOOKS_BUSY_EMAIL_PASSWORD'}"
+        )
     return username, password
 
 
@@ -141,6 +181,7 @@ def fetch_mailbox(
             {
                 "source": "imap",
                 "mailbox": mailbox,
+                "direction": "sent" if "sent" in mailbox.lower() else "received",
                 "message_key": hashlib.sha256(stable_id.encode()).hexdigest()[:20],
                 "date": message_date(message),
                 "subject": decode_text(message.get("Subject")),
