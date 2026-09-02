@@ -11,7 +11,8 @@ description: "在支持 Agent Skills 的 Coding Agent 中，连接经用户授�
 
 - `setup`：连接数据源、确定披露规则与定时设置。首次配置或权限变化时读取 [setup.md](references/setup.md)。
 - `run`：读取已授权来源，按 [report-policy.md](references/report-policy.md) 生成日报并返回给用户。用户说“生成日报”“今天的日报”或同义表达时立即运行，不等待定时任务。
-- `schedule`：识别当前 Agent，创建或修改它实际支持的每日自动任务。配置定时任务、交付或飞书写入时读取 [automation.md](references/automation.md)。
+- `schedule`：先运行 `python3 scripts/detect_scheduler.py` 识别当前 Agent 与可用调度器，按其推荐（原生调度器优先，OS 级 launchd/任务计划只做兜底）创建或修改每日自动任务。配置定时任务、交付或飞书写入时读取 [automation.md](references/automation.md)。
+- `doctor`：用户说“体检”“检查一下配置”“为什么没生成日报”时运行 `python3 scripts/doctor.py`，按输出的「下一步」逐项处理。它只报连接状态和数量，不输出邮件或日程内容。
 
 ## 必须遵守的授权边界
 
@@ -34,19 +35,19 @@ description: "在支持 Agent Skills 的 Coding Agent 中，连接经用户授�
 3. 连接并分别做最小只读测试；不要在测试输出中打印邮件正文、token 或敏感标题。
 4. 将非秘密配置写入用户目录，例如 `~/.config/looks-busy-agent/config.json`。可从 [config.example.json](references/config.example.json) 复制并校验：
 
-   `python3 scripts/check_config.py --config <path>`
+   `python3 scripts/check_config.py --config <path>`，随后 `python3 scripts/doctor.py` 做一次体检。
 
 5. 先执行一次预览运行。用户确认日报口径后，按 [automation.md](references/automation.md) 创建、试跑并回读当前 Agent 的每日定时任务；飞书日历事件仍需另行确认后才写入。
 
 ## 每日运行
 
-1. 读取当天日历、经授权的邮件、当前/指定 Agent 对话，以及指定目录内当天相关文件。
+1. 读取当天日历（`lark-cli calendar +agenda --as user`，带当天 `--start/--end`）、经授权的邮件（`scripts/collect_email.py`）、当前/指定 Agent 对话，以及指定目录内当天相关文件。无头定时运行时优先读取 wrapper 预采集到 `raw/<日期>/` 的快照。
 2. 记录每个来源的覆盖时间和连接状态；来源失败时明确降级，不用旧数据冒充当天事实。
 3. 将同一事项的多源信号合并，依照 [report-policy.md](references/report-policy.md) 判断 `done`、`ongoing`、`planned` 或 `blocked`。
 4. 先做相关性过滤和敏感信息处理，再生成 `【工作日报】` 草稿。AI 只用于幕后提炼，日报不披露所用工具或自动化过程。
 5. 从未完成事项、后续动作和未来日历中提取计划，生成下一工作周期的日历候选块。
 6. 按 [automation.md](references/automation.md) 执行幂等写入；没有日历写入授权时只输出预览。
-7. 将日报返回到发起设置的 Agent 任务或会话，并把日报和运行摘要保存到用户配置的私有目录。只有明确授权固定接收方后，才可额外发送到飞书个人、群聊或邮箱。
+7. 将日报返回到发起设置的 Agent 任务或会话，并**必须**用 `python3 scripts/save_report.py --date <日期>`（日报正文走 stdin 或 `--file`）保存私有副本到 `report.output_dir`；脚本会打印保存路径，没有这行输出就等于没保存。只有明确授权固定接收方后，才可额外发送到飞书个人、群聊或邮箱。
 
 ## 停止条件
 

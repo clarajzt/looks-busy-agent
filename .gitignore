@@ -4,3 +4,4 @@ __pycache__/
 .looks-busy-agent/
 config.json
 *.secret
+tests/.canaries.local

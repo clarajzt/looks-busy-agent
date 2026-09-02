@@ -20,6 +20,8 @@ SCHEDULE_PROVIDERS = {
     "trae_automation",
     "workbuddy_automation",
     "cola_alarm",
+    "launchd",
+    "schtasks",
     "other_native",
 }
 DELIVERY_MODES = {"agent_conversation", "local_file", "feishu", "email"}
@@ -40,8 +42,11 @@ def check(config: dict) -> tuple[list[str], list[str]]:
     run_time = config.get("run_time", "")
     if not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", str(run_time)):
         fail(errors, f"run_time 需为 HH:MM，当前: {run_time!r}")
-    if not config.get("work_scope"):
+    work_scope = config.get("work_scope") or []
+    if not work_scope:
         warnings.append("work_scope 为空：日报将无法做范围过滤，建议在 setup 中补齐")
+    elif any(str(item).strip().startswith("<") for item in work_scope):
+        warnings.append("work_scope 还是示例占位（以 < 开头），请换成你自己的岗位职责")
 
     schedule = config.get("schedule", {})
     if schedule.get("enabled"):

@@ -4,21 +4,43 @@
 
 ## 0. 基本信息（一次问完）
 
-- 岗位与工作范围：日报只写这个范围内的事，写入 `config.work_scope`（例：投资项目、投后、融资 LP；或行政、财务、法务等，按用户岗位来）。
+- 岗位与工作范围：日报只写这个范围内的事，写入 `config.work_scope`，按用户岗位来，2-4 条即可。示例配置里的三条是占位（以 `<` 开头），必须替换。例子：投资机构同事可写「融资与 LP 服务」「项目沟通、筛选、尽调与内部评审」「投后管理与信息更新」；职能岗可写「行政与差旅」「财务报销与对账」「法务合同流转」。
 - 时区（默认 `Asia/Shanghai`）与每日运行时间（默认 `21:00`，用户可改）。
 - 当前使用的 Agent 与运行形态（Codex、Claude Code Desktop/CLI、TRAE/TraeWork、WorkBuddy、Cola 或其他）。
 - 日报保存目录（默认 `~/.local/share/looks-busy-agent/reports`）。
 - 要启用哪些数据源：飞书日历 / 工作邮箱（腾讯企业邮箱）/ 本地文件 / Agent 对话记录。
 
-## 1. 飞书（lark-cli，用户扫码授权）
+## 1. 飞书日历（lark-cli，用户扫码授权，只读）
 
-先向用户说明：Agent 将通过飞书官方 CLI 以**用户本人身份**读取个人日历；授权在飞书官方页面完成，随时可在飞书「设置 → 安全 → 授权管理」撤销。
+先向用户说明：Agent 将通过飞书官方 CLI 以**用户本人身份**读取个人日历；只申请两个只读 scope：`calendar:calendar:readonly` 与 `calendar:calendar.event:read`（不要用 `--domain calendar`，它会一并申请创建/删除日程等写权限）；授权在飞书官方页面完成，随时可在飞书「设置 → 安全 → 授权管理」撤销。
 
-1. 检查安装：`lark-cli --version`。未安装则 `npm install -g @larksuite/cli`（需要 Node.js；macOS 无 node 先 `brew install node`）。
-2. 首次配置：后台运行 `lark-cli config init --new`，从输出提取授权/配置链接。**链接原样展示，并用 `lark-cli auth qrcode` 生成 PNG 二维码一并展示**（先 `--help` 确认用法），由用户在浏览器/手机上完成。
-3. 登录（user 身份、最小 scope）：`lark-cli auth login --domain calendar`。同样按上一条处理输出中的授权链接。
-4. 只读冒烟测试：`lark-cli calendar +agenda`。只向用户报告「连接成功，今天有 N 个日程」，不要把日程详情打印进终端记录。
-5. 判断成功用 JSON 信封的 `ok == true`（不是 `code == 0`）。若提示 `missing_scopes` 或管理员审批 pending：停止该来源，把控制台链接给用户，不要循环重试。
+lark-cli 需要先绑定一个飞书应用。两种方式，**优先 A**：
+
+### A. 公司统一应用（推荐给非技术同事）
+
+管理员一次性在飞书开放平台创建企业自建应用并开通上述两个权限（步骤见仓库 README「管理员一次性准备」），然后把 App ID 和 App Secret 通过安全渠道交给同事。同事侧：
+
+1. 安装：`lark-cli --version`。未安装则需要 Node.js（macOS：从 https://nodejs.org 下载 LTS 安装包，或 `brew install node`），再 `npm install -g @larksuite/cli`。
+2. 绑定应用（**Secret 不经过对话**）：让用户本人打开「终端」运行 `lark-cli config init`，按提示选择「已有应用」并粘贴 App ID / App Secret；lark-cli 会把 Secret 存到本机安全存储。Agent 不要代替用户输入 Secret，也不要把它写进任何文件。
+3. 默认身份改为用户：`lark-cli config default-as user`。不做这一步时 lark-cli 默认以 bot 身份调用，读不到个人日历。
+4. 登录（Device Flow，Agent 友好写法）：
+
+   ```bash
+   lark-cli auth login --scope "calendar:calendar:readonly calendar:calendar.event:read" --no-wait --json
+   ```
+
+   从输出取 verification URL 和 device code：URL 原样展示给用户，并用 `lark-cli auth qrcode "<url>" --ascii` 附上二维码；用户在手机/浏览器里确认后，再执行 `lark-cli auth login --device-code <code>` 完成。
+5. 只读冒烟：`lark-cli calendar +agenda --as user --jq '.meta.count'`（只输出数量；不要用裸 `--jq length`，那数的是信封的键）。只向用户报告「连接成功，今天有 N 个日程」，不要把日程详情打印进终端记录。
+
+### B. 没有公司应用：个人自建应用
+
+后台运行 `lark-cli config init --new`，从输出提取授权链接原样展示（可配 `lark-cli auth qrcode`），用户在浏览器里创建自己的应用；之后从上面第 3 步继续。企业若限制普通成员创建应用，此路会失败，请回到 A 找管理员。
+
+### 判定与停止
+
+- 成功以 JSON 信封的 `ok == true` 为准（不是进程退出码）。
+- 提示 `missing_scopes`、应用未发布或管理员审批 pending：停止该来源，把开放平台/审批链接给用户，不要循环重试。
+- 每日运行读取日历时同样使用 `--as user`，并带当天 `--start/--end`（ISO 8601，含时区偏移）。
 
 同机已安装 `lark-shared` 等官方 lark skills 时，认证细节以它们为准。
 
@@ -36,7 +58,13 @@
    security add-generic-password -a "you@company.com" -s looks-busy-agent-email -w
    ```
 
-4. 其他系统使用当前 Agent 支持的 secret store，或由用户在启动 Agent 前设置 `password_env` 指向的环境变量；不得把密码写入配置或 Skill。
+4. Windows 在 PowerShell 存入凭据管理器（`/pass` 不带值会隐藏式输入）：
+
+   ```powershell
+   cmdkey /generic:looks-busy-agent-email /user:you@company.com /pass
+   ```
+
+   其他系统使用当前 Agent 支持的 secret store，或由用户在启动 Agent 前设置 `password_env` 指向的环境变量；不得把密码写入配置或 Skill。
 5. 在 config 的 `sources.email` 填 `username`（邮箱地址）；`host` 默认 `imap.exmail.qq.com:993`。凭据查找顺序：macOS Keychain service（若可用）→ 环境变量（`password_env`）。
 
 冒烟测试：`python3 scripts/collect_email.py --config <path> --check` —— 只登录并确认邮箱可选取，不拉正文。失败时常见原因：未开 IMAP、用了登录密码而非专用密码。
@@ -62,6 +90,7 @@
 
 ```bash
 python3 scripts/check_config.py --config ~/.config/looks-busy-agent/config.json
+python3 scripts/doctor.py          # 一键体检：配置、飞书、邮箱、定时、最近日报；只报状态不报内容
 ```
 
 ## 6. 预览运行
