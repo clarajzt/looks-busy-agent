@@ -125,7 +125,8 @@ def check_feishu(report: Report, config: dict) -> None:
     code, out, err = run(["lark-cli", "auth", "status", "--json"])
     status = parse_json(out) or parse_json(err) or {}
     user_identity = (status.get("identities") or {}).get("user") or {}
-    logged_in = status.get("ok") is True or user_identity.get("status") == "ready"
+    # needs_refresh 会在下一次用户态调用时自动刷新，同样算已登录（此前误报「未登录」）
+    logged_in = status.get("ok") is True or user_identity.get("status") in ("ready", "needs_refresh")
     if not logged_in:
         error = status.get("error", {})
         subtype = error.get("subtype") or error.get("type") or f"exit {code}"
