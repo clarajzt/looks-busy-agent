@@ -13,7 +13,9 @@ import platform
 import shutil
 import subprocess
 import sys
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 DEFAULT_CONFIG = Path("~/.config/looks-busy-agent/config.json")
@@ -103,6 +105,7 @@ def load_config(report: Report, path: Path) -> dict | None:
     errors, warnings = check_config(config)
     if errors:
         report.fail("配置", "; ".join(errors), f"python3 {SCRIPT_DIR / 'check_config.py'} --config {path}")
+        return None
     elif warnings:
         report.warn("配置", "; ".join(warnings))
     else:
@@ -162,9 +165,13 @@ def check_feishu(report: Report, config: dict) -> None:
             "已登录，但缺少只读日历 scope",
             f'lark-cli auth login --scope "{READONLY_SCOPES}"（应用需先由管理员开通这两个权限）',
         )
-    code, out, err = run(["lark-cli", "calendar", "+agenda", "--as", "user", "--format", "json"])
+    from run_daily import day_bounds
+    day = datetime.now(ZoneInfo(config["timezone"])).date()
+    start, end = day_bounds(day, config["timezone"])
+    code, out, err = run(["lark-cli", "calendar", "+agenda", "--as", "user", "--format", "json",
+                          "--calendar-id", feishu.get("calendar_id", "primary"), "--start", start, "--end", end])
     agenda = parse_json(out) or parse_json(err) or {}
-    if agenda.get("ok"):
+    if code == 0 and agenda.get("ok"):
         count = (agenda.get("meta") or {}).get("count")
         if count is None:
             count = count_items(agenda.get("data"))
@@ -252,6 +259,16 @@ def check_last_run(report: Report, config: dict) -> None:
         report.ok("最近日报", f"共 {len(reports)} 份，最新 {reports[-1].name}")
     else:
         report.warn("最近日报", f"{output_dir} 里还没有日报", "对 Agent 说「生成今天的日报」做一次预览")
+    if config.get("schedule", {}).get("provider") in ("launchd", "schtasks"):
+        from run_daily import default_data_dir
+        status_file = default_data_dir() / "logs" / "last_run.json"
+        if status_file.is_file():
+            status = parse_json(status_file.read_text(encoding="utf-8")) or {}
+            if status.get("ok") is True:
+                report.ok("最近运行", f"{status.get('date', '')} 日报已保存")
+            else:
+                report.fail("最近运行", f"{status.get('date', '')} 运行未完成（{status.get('error', 'unknown')}）", "检查可用数据源后执行 run-once")
+        return
     if log.exists():
         lines = [line for line in log.read_text(encoding="utf-8", errors="replace").splitlines() if line.strip()]
         if lines:

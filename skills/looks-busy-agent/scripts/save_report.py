@@ -14,13 +14,42 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
+import tempfile
 from datetime import date
 from pathlib import Path
 
 DEFAULT_CONFIG = Path("~/.config/looks-busy-agent/config.json")
 DEFAULT_OUTPUT_DIR = "~/.local/share/looks-busy-agent/reports"
+
+
+def save_report(content: str, output_dir: str, day: str, force: bool = False) -> Path:
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", day):
+        raise ValueError("--date 需为 YYYY-MM-DD")
+    date.fromisoformat(day)
+    content = content.strip()
+    if len(content) < 20:
+        raise ValueError("日报内容为空或过短，未保存")
+    target_dir = Path(output_dir).expanduser()
+    target_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+    target = target_dir / f"{day}.md"
+    # Write privately from the first byte; publish only a complete file. A hard
+    # link gives no-overwrite semantics without a check-then-write race.
+    fd, temporary = tempfile.mkstemp(prefix=".report-", dir=target_dir)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(content + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        if force:
+            os.replace(temporary, target)
+        else:
+            os.link(temporary, target)
+    finally:
+        Path(temporary).unlink(missing_ok=True)
+    return target
 
 
 def main() -> None:
@@ -38,26 +67,17 @@ def main() -> None:
     if config_path.is_file():
         try:
             output_dir = json.loads(config_path.read_text(encoding="utf-8")).get("report", {}).get("output_dir") or output_dir
-        except json.JSONDecodeError:
-            pass
-    content = (args.file.read_text(encoding="utf-8") if args.file else sys.stdin.read()).strip()
-    if len(content) < 20:
-        sys.exit("日报内容为空或过短，未保存")
-
-    target_dir = Path(output_dir).expanduser()
-    target_dir.mkdir(parents=True, exist_ok=True)
+        except (json.JSONDecodeError, AttributeError, TypeError):
+            sys.exit("配置无效，未保存")
+    elif args.config != DEFAULT_CONFIG:
+        sys.exit("指定配置不存在，未保存")
+    content = args.file.expanduser().read_text(encoding="utf-8") if args.file else sys.stdin.read()
     try:
-        target_dir.chmod(0o700)
-    except OSError:
-        pass
-    target = target_dir / f"{args.date}.md"
-    if target.exists() and not args.force:
-        sys.exit(f"已存在 {target}；要覆盖请加 --force")
-    target.write_text(content + "\n", encoding="utf-8")
-    try:
-        target.chmod(0o600)
-    except OSError:
-        pass
+        target = save_report(content, output_dir, args.date, args.force)
+    except FileExistsError:
+        sys.exit("日报已存在；要覆盖请加 --force")
+    except (ValueError, OSError, TypeError) as exc:
+        sys.exit(f"保存失败: {exc}")
     print(f"saved: {target}")
 
 

@@ -8,6 +8,7 @@ import json
 import re
 import sys
 from pathlib import Path
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 KNOWN_SOURCES = {"agent_history", "local_files", "feishu", "email"}
 FORBIDDEN_KEYS = re.compile(r"(password|secret|token|api_key)$", re.IGNORECASE)
@@ -35,10 +36,45 @@ def check(config: dict) -> tuple[list[str], list[str]]:
     errors: list[str] = []
     warnings: list[str] = []
 
+    if not isinstance(config, dict):
+        return ["配置必须是 JSON object"], warnings
+    for key in ("sources", "schedule", "report", "calendar", "privacy"):
+        if key in config and not isinstance(config[key], dict):
+            errors.append(f"{key} 必须是 object")
+    if errors:
+        return errors, warnings
+    sources = config.get("sources", {})
+    for name, source in sources.items():
+        if not isinstance(source, dict):
+            errors.append(f"sources.{name} 必须是 object")
+    if errors:
+        return errors, warnings
+    objects = [("sources." + name, value) for name, value in sources.items()]
+    objects += [(name, config.get(name, {})) for name in ("schedule", "calendar", "privacy", "report")]
+    for name, obj in objects:
+        for key in ("enabled", "write_enabled", "current_thread_only", "delivery_verified", "default_unknown_entity_to_anonymous"):
+            if key in obj and type(obj[key]) is not bool:
+                errors.append(f"{name}.{key} 必须是 boolean")
+        for key in ("roots", "mailboxes", "sections"):
+            if key in obj and (not isinstance(obj[key], list) or any(not isinstance(item, str) or not item.strip() for item in obj[key])):
+                errors.append(f"{name}.{key} 必须是非空字符串列表")
+        for key in ("lookback_hours", "port", "max_blocks", "plan_horizon_days", "raw_retention_days"):
+            if key in obj and (type(obj[key]) is not int or obj[key] < 1):
+                errors.append(f"{name}.{key} 必须是正整数")
+        for key in ("host", "username", "username_env", "password_env", "password_keychain_service", "calendar_id", "identity", "protocol", "output_dir", "delivery", "marker", "target", "provider", "title_format"):
+            if key in obj and not isinstance(obj[key], str):
+                errors.append(f"{name}.{key} 必须是字符串")
+    if "work_scope" in config and (not isinstance(config["work_scope"], list) or any(not isinstance(item, str) for item in config["work_scope"])):
+        errors.append("work_scope 必须是字符串列表")
+    if errors:
+        return errors, warnings
+
     if config.get("version") != 1:
         fail(errors, "version 必须是 1")
-    if not config.get("timezone"):
-        fail(errors, "缺少 timezone")
+    try:
+        ZoneInfo(config.get("timezone", ""))
+    except (TypeError, ValueError, ZoneInfoNotFoundError):
+        fail(errors, "timezone 必须是有效的 IANA 时区；Windows 如缺少时区数据请安装 tzdata")
     run_time = config.get("run_time", "")
     if not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", str(run_time)):
         fail(errors, f"run_time 需为 HH:MM，当前: {run_time!r}")
@@ -71,6 +107,14 @@ def check(config: dict) -> tuple[list[str], list[str]]:
             fail(errors, "email 需要 username 或 username_env")
         if not (email.get("password_keychain_service") or email.get("password_env")):
             fail(errors, "email 需要 password_keychain_service（推荐）或 password_env")
+        if email.get("protocol", "imap") != "imap":
+            fail(errors, "email.protocol 目前只支持 imap")
+        if email.get("port", 993) > 65535:
+            fail(errors, "email.port 超出范围")
+
+    feishu = sources.get("feishu", {})
+    if feishu.get("enabled") and feishu.get("identity", "user") != "user":
+        fail(errors, "feishu.identity 必须是 user")
 
     local = sources.get("local_files", {})
     if local.get("enabled"):
@@ -78,9 +122,12 @@ def check(config: dict) -> tuple[list[str], list[str]]:
         if not roots:
             fail(errors, "local_files.enabled 但 roots 为空")
         for root in roots:
-            path = Path(root).expanduser()
-            if path == Path.home():
-                fail(errors, "local_files.roots 不允许整个主目录，请指定具体工作目录")
+            path = Path(root).expanduser().resolve()
+            user_dir = Path.home().resolve()
+            sensitive = [user_dir / name for name in (".ssh", ".aws", ".config", ".codex", ".claude", "Library", ".gnupg")]
+            system_roots = [Path(name) for name in ("/etc", "/private/etc", "/System", "/Library", "/var", "/proc", "/dev")]
+            if path == user_dir or path in user_dir.parents or any(path == item or item in path.parents for item in sensitive + system_roots):
+                fail(errors, "local_files.roots 不允许主目录、其上级或敏感系统目录，请指定具体工作目录")
             elif not path.exists():
                 warnings.append(f"local_files 目录不存在: {root}")
 
@@ -91,6 +138,8 @@ def check(config: dict) -> tuple[list[str], list[str]]:
     delivery = config.get("report", {}).get("delivery")
     if delivery not in DELIVERY_MODES:
         fail(errors, f"未知 report.delivery: {delivery!r}")
+    if delivery in ("feishu", "email") and not config.get("report", {}).get("recipient"):
+        fail(errors, "外部交付必须配置已授权 recipient")
 
     def scan_secrets(node, path="config"):
         if isinstance(node, dict):

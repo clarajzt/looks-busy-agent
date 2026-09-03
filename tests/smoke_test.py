@@ -95,6 +95,14 @@ def main() -> None:
             link = adapter_root / "looks-busy-agent"
             require(link.is_symlink() and link.resolve() == canonical.resolve(), f"adapter link broken after upgrade: {link}")
 
+        # A failed update must leave the working install and discovery links intact.
+        failed_env = dict(env, LOOKS_BUSY_AGENT_ARCHIVE_URL=(sandbox / "missing.tar.gz").as_uri())
+        failed = subprocess.run(["bash", str(installer), "--upgrade"], capture_output=True, text=True, env=failed_env)
+        require(failed.returncode != 0, "missing archive must fail")
+        require((canonical / "SKILL.md").is_file(), "failed upgrade removed working install")
+        for adapter_root in adapter_roots:
+            require((adapter_root / "looks-busy-agent").resolve() == canonical.resolve(), "failed upgrade broke a discovery link")
+
         # launchd wrapper renders without scheduling or running anything
         config_dir = home / ".config" / "looks-busy-agent"
         config_dir.mkdir(parents=True)
@@ -107,7 +115,7 @@ def main() -> None:
         wrapper = Path(rendered.stdout.strip())
         require(wrapper.is_file() and str(wrapper).startswith(str(home)), f"wrapper not under sandbox home: {wrapper}")
         wrapper_text = wrapper.read_text(encoding="utf-8")
-        for needle in ("--as user", "--permission-mode dontAsk", "Edit(//", "collect_email.py", "looks-busy-agent"):
+        for needle in ("run_daily.py", "--agent claude", "--config", "looks-busy-agent"):
             require(needle in wrapper_text, f"wrapper missing {needle!r}")
         require("dangerously-skip-permissions" not in wrapper_text, "wrapper must not skip permissions")
         require(not (home / "Library" / "LaunchAgents").exists(), "render must not install a launchd job")
@@ -170,7 +178,7 @@ def main() -> None:
         f"unexpected scheduler recommendation: {detection['recommended']}",
     )
     windows_script = (SKILL / "scripts" / "schedule_windows.ps1").read_text(encoding="utf-8")
-    for needle in ("-WakeToRun", "-StartWhenAvailable", "--as user", "dontAsk", "cmdkey /generic:looks-busy-agent-email"):
+    for needle in ("-WakeToRun", "-StartWhenAvailable", "run_daily.py", "cmdkey /generic:looks-busy-agent-email"):
         require(needle in windows_script, f"schedule_windows.ps1 missing {needle!r}")
     require("dangerously-skip-permissions" not in windows_script, "windows wrapper must not skip permissions")
     for doc in (ROOT / "README.md", SKILL / "references" / "automation.md", SKILL / "scripts" / "schedule_launchd.sh"):

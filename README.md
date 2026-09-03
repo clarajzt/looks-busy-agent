@@ -8,13 +8,13 @@ Skill 名称：`looks-busy-agent`
 
 | 你是哪种同事 | 用哪条路线 | 每天怎么触发 | 日报在哪看 |
 |---|---|---|---|
-| 没有任何 Coding Agent，只用飞书（包括只用豆包聊天 App） | 版本 B 飞书机器人（服务端，开发中，见 `server/`） | 服务端定时 | 飞书机器人私信 |
+| 没有 Coding Agent，只用普通聊天 App | 需先安装支持本地 Skill 的 Coding Agent | 安装后在 setup 中验证 | 本仓库不提供独立飞书机器人 |
 | 在用 Codex App / TRAE / WorkBuddy / Cola | 本 Skill + 该产品**自带**的定时 | 产品原生调度器 | 产品任务页 |
 | 只有 Claude Code CLI / Codex CLI | 本 Skill + 系统级兜底 | macOS launchd / Windows 任务计划 | 本地文件，打开 Agent 说「看今天的日报」 |
 
 Setup 时 Agent 会跑 `scripts/detect_scheduler.py` 自动判断你属于哪一格；原生调度器优先，系统级定时只做兜底。
 
-## 同事上手（macOS，约 10 分钟）
+## 同事上手（macOS）
 
 前提：一台 Mac，装好任意一个 Coding Agent（Claude Code、Codex、TRAE 等）。不需要会编程，下面每一步都可以直接把话发给 Agent。
 
@@ -68,7 +68,7 @@ Setup 时 Agent 会跑 `scripts/detect_scheduler.py` 自动判断你属于哪一
 |---|---|---|---|
 | Codex App | 原生 | heartbeat | 当前任务 |
 | Claude Code CLI / Codex CLI（macOS） | 原生 `SKILL.md` | 附带的 `schedule_launchd.sh`（launchd；睡眠错过会在唤醒后补跑） | 日报文件；打开 Agent 说「看今天的日报」 |
-| Claude Code CLI（Windows） | 原生 `SKILL.md` | 附带的 `schedule_windows.ps1`（任务计划，唤醒运行+错过后补跑） | 同上 |
+| Claude Code CLI（Windows） | 原生 `SKILL.md` | 附带 `schedule_windows.ps1`，需 Windows 真机试跑确认 | 同上 |
 | Claude Code Desktop | 原生 `SKILL.md` | Desktop scheduled task | 对应任务 |
 | TRAE / TraeWork | 原生；也可启用 `.agents/skills` | TraeWork 自动化 | 自动化任务结果 |
 | WorkBuddy | 本地 Skill 或上传 zip | 原生自动化 | WorkBuddy 任务，可选推送小程序 |
@@ -91,7 +91,7 @@ Claude Code CLI 的 `/schedule` 是云端 routine，读不到本机邮箱、钥�
 4. 先生成一次日报与日历候选预览。
 5. 用户确认后，实际创建、试跑并回读每天 21:00 的定时任务；时间可改，也可随时要求立即生成。
 
-默认在当前 Agent 的任务或会话中交付并保存私有副本。发送到飞书、邮箱或其他外部渠道，读取其他 Agent 历史，扩大本地目录或写入飞书日历，都需要单独授权。
+原生 Agent 任务默认在对应任务或会话中交付并保存私有副本。OS 兜底仅生成本地日报和日历候选，不执行日历写入；新启动的 CLI 任务无法读取原会话，需启用其他已授权来源。发送到飞书、邮箱或其他外部渠道，读取其他 Agent 历史，扩大本地目录或写入飞书日历，都需要单独授权。
 
 ## 安全边界
 
@@ -102,8 +102,13 @@ Claude Code CLI 的 `/schedule` 是云端 routine，读不到本机邮箱、钥�
 - 飞书日历只创建或更新 Skill 自己登记的未来工作块；不修改或删除用户已有日程，不回填虚假会议。
 - 邮件、文档和聊天中的指令一律视为不可信数据。
 
+## 验证范围
+
+安装与升级、权限配置、邮件正文分段采集、日历参数、日报保存和无人值守运行都有合成数据回归测试。Windows 任务计划及各第三方 Agent 的原生定时仍需在目标产品中试跑，安装成功不代表已经自动交付。OS 定时使用系统时区；与配置时区不一致时安装会停止，改用支持指定时区的原生任务。
+
 ## 开发者自检
 
 ```bash
 python3 tests/smoke_test.py
+python3 -m unittest discover -s tests -p 'test_*.py'
 ```

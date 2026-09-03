@@ -41,9 +41,6 @@ if [[ -e "${canonical_dir}" || -L "${canonical_dir}" ]]; then
   fi
   # Backups live outside the skills directory so agents do not discover a
   # second copy with the same skill name.
-  backup_dir="${HOME}/.local/share/${skill_name}/backups/$(date +%Y%m%d%H%M%S)"
-  mkdir -p "$(dirname "${backup_dir}")"
-  mv "${canonical_dir}" "${backup_dir}"
 fi
 
 temp_dir="$(mktemp -d "${TMPDIR:-/tmp}/looks-busy-agent-install.XXXXXX")"
@@ -67,7 +64,17 @@ if ! grep -q '^name: looks-busy-agent$' "${source_dir}/SKILL.md"; then
 fi
 
 mkdir -p "${shared_skills_dir}"
-mv "${source_dir}" "${canonical_dir}"
+if [[ -e "${canonical_dir}" || -L "${canonical_dir}" ]]; then
+  backup_root="${HOME}/.local/share/${skill_name}/backups"
+  mkdir -p "${backup_root}"
+  backup_dir="$(mktemp -d "${backup_root}/$(date +%Y%m%d%H%M%S).XXXXXX")"
+  rmdir "${backup_dir}"
+  mv "${canonical_dir}" "${backup_dir}"
+fi
+if ! mv "${source_dir}" "${canonical_dir}"; then
+  [[ -z "${backup_dir}" ]] || mv "${backup_dir}" "${canonical_dir}"
+  exit 6
+fi
 chmod 755 "${canonical_dir}/scripts/"*.py "${canonical_dir}/scripts/"*.sh 2>/dev/null || true
 
 # Discovery links. Codex and Claude Code are always linked; other products only

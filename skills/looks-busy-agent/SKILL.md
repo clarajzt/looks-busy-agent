@@ -41,12 +41,12 @@ description: "在支持 Agent Skills 的 Coding Agent 中，连接经用户授�
 
 ## 每日运行
 
-1. 读取当天日历（`lark-cli calendar +agenda --as user`，带当天 `--start/--end`）、经授权的邮件（`scripts/collect_email.py`）、当前/指定 Agent 对话，以及指定目录内当天相关文件。无头定时运行时优先读取 wrapper 预采集到 `raw/<日期>/` 的快照。
+1. 读取当天日历（`lark-cli calendar +agenda --as user`，带配置的 `--calendar-id` 及对应时区的当天 `--start/--end`）、经授权的邮件（`scripts/collect_email.py`）、当前/指定 Agent 对话，以及指定目录内当天相关文件。无头定时运行时优先读取 wrapper 预采集到 `raw/<日期>/run-*/` 中本次运行的快照（以 wrapper 提供的具体目录为准，不读旧运行）。
 2. 记录每个来源的覆盖时间和连接状态；来源失败时明确降级，不用旧数据冒充当天事实。
 3. 将同一事项的多源信号合并，依照 [report-policy.md](references/report-policy.md) 判断 `done`、`ongoing`、`planned` 或 `blocked`。
 4. 先做相关性过滤和敏感信息处理，再生成 `【工作日报】` 草稿。AI 只用于幕后提炼，日报不披露所用工具或自动化过程。
 5. 从未完成事项、后续动作和未来日历中提取计划，生成下一工作周期的日历候选块。
-6. 按 [automation.md](references/automation.md) 执行幂等写入；没有日历写入授权时只输出预览。
+6. 原生任务或交互会话按 [automation.md](references/automation.md) 执行幂等写入；OS 兜底仅输出候选；没有日历写入授权时只输出预览。
 7. 将日报返回到发起设置的 Agent 任务或会话，并**必须**用 `python3 scripts/save_report.py --date <日期>`（日报正文走 stdin 或 `--file`）保存私有副本到 `report.output_dir`；脚本会打印保存路径，没有这行输出就等于没保存。只有明确授权固定接收方后，才可额外发送到飞书个人、群聊或邮箱。
 
 ## 停止条件

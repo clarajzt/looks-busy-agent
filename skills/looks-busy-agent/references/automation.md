@@ -22,7 +22,7 @@ setup 必须先识别当前运行环境，再选择本环境真实可用的调�
 | Codex App | 当前任务 heartbeat | 当前 Codex 任务 | 创建后回读卡片与 ACTIVE 状态 |
 | Claude Code Desktop | Desktop scheduled task | 对应 Claude 任务 | 选择可访问本地文件的 Desktop 任务 |
 | Claude Code CLI / Codex CLI（macOS） | `scripts/schedule_launchd.sh`（launchd 无头运行） | 日报文件 + 运行日志；下次打开 Agent 时可读 | 睡眠中错过会在唤醒后补跑，关机则丢；`/schedule` cloud routine 不能读取本机邮箱、Keychain 或 lark-cli，不要用它 |
-| Claude Code CLI / Codex CLI（Windows） | `scripts/schedule_windows.ps1`（任务计划无头运行） | 同上 | 已启用「唤醒运行」+「错过后尽快运行」；Codex CLI 在 Windows 官方仍标实验性，优先 Claude Code；白名单路径规则未在真机验证 |
+| Claude Code CLI / Codex CLI（Windows） | `scripts/schedule_windows.ps1`（任务计划无头运行） | 同上 | 已启用「唤醒运行」+「错过后尽快运行」；Codex CLI 在 Windows 官方仍标实验性，优先 Claude Code；Windows 任务计划未在真机验证；Python 需可用且安装 tzdata |
 | TRAE / TraeWork（豆包编程入口） | 自动化定时任务 | TraeWork 任务结果 | 在 Work 模式创建，并确认 Skill 与本地目录权限 |
 | WorkBuddy | 自动化任务 | WorkBuddy 任务；可选推送小程序 | 选择本 Skill、工作空间与“推送到小程序”设置 |
 | Cola | 智能闹钟 | 创建闹钟的会话 | Cola 桌面端需保持运行；定时任务可调用已安装 Skill |
@@ -42,7 +42,13 @@ bash scripts/schedule_launchd.sh status
 bash scripts/schedule_launchd.sh uninstall
 ```
 
-脚本生成 `~/Library/LaunchAgents/com.looks-busy-agent.daily.plist` 和 wrapper `~/.local/share/looks-busy-agent/run_daily.sh`。到点先**确定性预采集**当天只读快照（`collect_email.py`、`lark-cli calendar +agenda --as user` → `raw/<日期>/`，失败即降级），再以最小白名单无头调用 `claude -p`（`--permission-mode dontAsk` + `--allowedTools`，不用 `--dangerously-skip-permissions`）或 `codex exec` 执行 `run`，30 分钟 watchdog，结果写入 `logs/run.log` 与 `logs/last_run.json`。改白名单时注意两个已验证的坑：文件写入用 `Edit(...)` 规则（`Write(路径)` 不匹配），绝对路径要写成双斜杠 `//Users/...`。
+脚本生成 `~/Library/LaunchAgents/com.looks-busy-agent.daily.plist` 和 wrapper `~/.local/share/looks-busy-agent/run_daily.sh`。实际运行统一交给 `scripts/run_daily.py`：
+
+- 以配置时区确定日期、选定日历与起止时间，每次创建独立的 `raw/<日期>/run-*/` 快照；失败或停用的来源不会复用旧数据。
+- Claude 仅开放 Read/Glob/Grep，禁用继承的 MCP 配置；Codex 使用 read-only sandbox、`--skip-git-repo-check` 和 `--ignore-user-config`，不继承用户配置中的 MCP 服务（保留既有规则文件与账户登录，不加载自定义 provider/profile）。两者均不持久保存生成会话。模型只返回日报文本，程序检查日期和栏目后，通过 `save_report.py` 的共享保存函数写入私有文件。
+- 只有文件保存成功才返回成功。错误退出、空回复或缺少栏目均返回非零；运行状态在 `logs/last_run.json`，不记录来源正文或凭据。同一天已有日报时直接返回既有路径；需要改稿请在交互会话明确覆盖。
+- OS 兜底只输出日历候选；日历写入由交互会话或已授权的原生 Agent 任务执行。独立 CLI 任务没有原会话历史，必须有邮箱、日历或本地工作目录等可用来源。
+- CLI 运行最多 30 分钟。原始快照按 `privacy.raw_retention_days` 清理。OS 定时跟随系统时区，安装时校验其与配置时区是否一致；不一致时改用支持指定时区的原生调度器。
 
 安装成功后把 `config.schedule` 写成 `{"provider": "launchd", "agent": "claude", "job_id": "com.looks-busy-agent.daily"}`，并 `run-once` 试跑一次确认有日报文件产生。launchd 只落盘不推送，向用户说明「到点会生成，打开 Agent 说『看今天的日报』即可读」；要推送到飞书需另行授权。睡眠：`StartCalendarInterval` 在睡眠中错过的触发会在唤醒后合并补跑一次（man launchd.plist），只有关机才真正错过。
 
@@ -54,7 +60,7 @@ powershell -ExecutionPolicy Bypass -File scripts\schedule_windows.ps1 run-once
 powershell -ExecutionPolicy Bypass -File scripts\schedule_windows.ps1 status | uninstall
 ```
 
-结构与 launchd 脚本一致：wrapper 在 `%LOCALAPPDATA%\looks-busy-agent\run_daily.ps1`，先预采集再无头调用 Agent。任务同时启用 WakeToRun 与 StartWhenAvailable（缺一个笔记本睡眠时就跑不了；从睡眠唤醒还要 BIOS 允许定时唤醒）。邮箱密码用 `cmdkey /generic:looks-busy-agent-email /user:<邮箱> /pass` 存入凭据管理器，`collect_email.py` 通过系统 API 读回。`config.schedule.provider` 写 `schtasks`。
+与 launchd 共用 run_daily.py：wrapper 在 `%LOCALAPPDATA%\looks-busy-agent\run_daily.ps1`，先预采集，再只读生成并由程序保存；不依赖 PowerShell 的长参数拼接。任务同时启用 WakeToRun 与 StartWhenAvailable（缺一个笔记本睡眠时就跑不了；从睡眠唤醒还要 BIOS 允许定时唤醒）。邮箱密码用 `cmdkey /generic:looks-busy-agent-email /user:<邮箱> /pass` 存入凭据管理器，`collect_email.py` 通过系统 API 读回。`config.schedule.provider` 写 `schtasks`。
 
 ## 定时 Prompt
 
