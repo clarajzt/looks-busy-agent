@@ -4,16 +4,6 @@
 
 Skill 名称：`looks-busy-agent`
 
-## 先选路线
-
-| 你是哪种同事 | 用哪条路线 | 每天怎么触发 | 日报在哪看 |
-|---|---|---|---|
-| 没有 Coding Agent，只用普通聊天 App | 需先安装支持本地 Skill 的 Coding Agent | 安装后在 setup 中验证 | 本仓库不提供独立飞书机器人 |
-| 在用 Codex App / TRAE / WorkBuddy / Cola | 本 Skill + 该产品**自带**的定时 | 产品原生调度器 | 产品任务页 |
-| 只有 Claude Code CLI / Codex CLI | 本 Skill + 系统级兜底 | macOS launchd / Windows 任务计划 | 本地文件，打开 Agent 说「看今天的日报」 |
-
-Setup 时 Agent 会跑 `scripts/detect_scheduler.py` 自动判断你属于哪一格；原生调度器优先，系统级定时只做兜底。
-
 ## 同事上手（macOS）
 
 前提：一台 Mac，装好任意一个 Coding Agent（Claude Code、Codex、TRAE 等）。不需要会编程，下面每一步都可以直接把话发给 Agent。
