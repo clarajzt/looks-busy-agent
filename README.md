@@ -42,8 +42,6 @@ Skill 名称：`looks-busy-agent`
 
 ## 管理员一次性准备（飞书应用）
 
-非技术同事不该各自去飞书开放平台建应用。管理员建一个公司统一应用，之后所有人只需扫码：
-
 1. 登录 [飞书开放平台](https://open.feishu.cn/app)，创建**企业自建应用**（名称如「看起来很忙日报」）。
 2. 「权限管理」里只开通两个**用户身份的只读**权限：`calendar:calendar:readonly`、`calendar:calendar.event:read`。不要开日程写权限。
 3. 按 lark-cli 官方说明开启用户身份授权（Device Flow）；发布版本并通过管理员审批。可用 `lark-cli auth scopes` 核对已开通的权限。
