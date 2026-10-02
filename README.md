@@ -1,4 +1,29 @@
-# 看起来很忙 Agent
+# looks-busy-agent · 看起来很忙 Agent
+
+**An opt-in daily work-report skill for local coding agents.** Turn authorized calendar, email, conversation, and file context into a reviewable internal update—without pretending that activity equals impact.
+
+![Consent-driven flow from selected sources through the local skill to a private draft](docs/overview.svg)
+
+The skill is designed for people who already use a local coding agent such as Codex or Claude Code. It is **not** a standalone chatbot or a hosted service. It can prepare a daily report on demand or on a user-approved schedule; optional calendar work blocks require a separate write permission.
+
+### At a glance
+
+| | |
+| --- | --- |
+| **Inputs** | Read-only Lark calendar and work email, plus optional agent conversation and user-selected local files—each source enabled separately. |
+| **Output** | A private draft with progress and next steps, delivered in the agent conversation or saved locally by the OS-scheduler fallback. |
+| **Control** | Preview before scheduling; no automatic email sending, fabricated meetings, or edits to existing calendar events. |
+| **Secrets** | Credentials stay in Keychain, a secret store, or the connector—not in prompts, config files, or this repository. |
+
+### Get started
+
+1. Read the [setup guide](skills/looks-busy-agent/references/setup.md) and the [permissions model](#安全边界).
+2. Install the skill with the [installer](install.sh), then ask your coding agent to start the `looks-busy-agent` setup.
+3. Review one report and explicitly approve any recurring schedule.
+
+The detailed Chinese walkthrough begins below. Synthetic regression tests cover installation, source permissions, report generation, and scheduled-run behavior; third-party agent schedulers and Windows scheduling still need verification in their target environments.
+
+## 中文说明
 
 跨 Coding Agent 的工作日报 Skill。经用户逐项授权后，它从飞书日历、工作邮箱、当前 Agent 对话和本地工作文件提炼当天进展，每天自动生成一份可以直接交的内部日报，也支持随时生成，并可维护下一工作周期的飞书工作块。
 
